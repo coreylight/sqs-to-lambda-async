@@ -62,8 +62,11 @@ function receiveMessages(kwargs = {}) {
       .pickBy()
       .value();
     sqs.receiveMessage(recieveArgs, (err, data) => {
+      if (err) {
+        return reject(err);
+      }
       const messages = _.isArray(data.Messages) ? data.Messages : [];
-      Promise.all(
+      return Promise.all(
         messages.map(msg => {
           return handleMessage(msg, kwargs);
         })
@@ -85,9 +88,22 @@ function createReader(kwargs) {
   }, readerIndex);
 }
 
-function setupServices() {
+function getRegion(QueueUrl = '') {
+  const regexRegion = _.get(
+    QueueUrl.match(/sqs\.(.*-.*-.*)\.amazonaws\.com/),
+    '1',
+    ''
+  );
+  const autoRegion = regexRegion.length > 4 ? regexRegion : null;
+  return autoRegion || process.env.AWS_REGION || 'us-west-2';
+}
+
+function setupServices(firstMapping = {}) {
   debug('Setting up AWS services');
-  sqs = new AWS.SQS();
+  const region = getRegion(firstMapping.QueueUrl);
+  sqs = new AWS.SQS({
+    region
+  });
   lambda = new AWS.Lambda();
 }
 
@@ -108,7 +124,7 @@ module.exports = async function run(mapping = []) {
       );
     }
     // we use this really only for mocking/testing purposes
-    setupServices();
+    setupServices(mapping[0]);
     const readers = mapping.map(obj => {
       // capitalize obj keys for ease of use later
       const msgArgs = _.chain(obj)
